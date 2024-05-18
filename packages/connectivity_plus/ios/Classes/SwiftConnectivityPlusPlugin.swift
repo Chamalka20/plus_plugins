@@ -2,12 +2,7 @@
 // Use of this source is governed by a BSD-style license that can
 // be found in the LICENSE file.
 
-#if os(iOS)
 import Flutter
-#elseif os(macOS)
-import Cocoa
-import FlutterMacOS
-#endif
 
 public class SwiftConnectivityPlusPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
   private let connectivityProvider: ConnectivityProvider
@@ -20,21 +15,21 @@ public class SwiftConnectivityPlusPlugin: NSObject, FlutterPlugin, FlutterStream
   }
 
   public static func register(with registrar: FlutterPluginRegistrar) {
-    #if os(iOS)
-    let binaryMessenger = registrar.messenger()
-    #elseif os(macOS)
-    let binaryMessenger = registrar.messenger
-    #endif
-
     let channel = FlutterMethodChannel(
       name: "dev.fluttercommunity.plus/connectivity",
-      binaryMessenger: binaryMessenger)
+      binaryMessenger: registrar.messenger())
 
     let streamChannel = FlutterEventChannel(
       name: "dev.fluttercommunity.plus/connectivity_status",
-      binaryMessenger: binaryMessenger)
+      binaryMessenger: registrar.messenger())
 
-    let connectivityProvider = PathMonitorConnectivityProvider()
+    let connectivityProvider: ConnectivityProvider
+    if #available(iOS 12, *) {
+      connectivityProvider = PathMonitorConnectivityProvider()
+    } else {
+      connectivityProvider = ReachabilityConnectivityProvider()
+    }
+
     let instance = SwiftConnectivityPlusPlugin(connectivityProvider: connectivityProvider)
     streamChannel.setStreamHandler(instance)
 
@@ -49,7 +44,7 @@ public class SwiftConnectivityPlusPlugin: NSObject, FlutterPlugin, FlutterStream
   public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     switch call.method {
     case "check":
-      result(statusFrom(connectivityTypes: connectivityProvider.currentConnectivityTypes))
+      result(statusFrom(connectivityType: connectivityProvider.currentConnectivityType))
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -63,16 +58,8 @@ public class SwiftConnectivityPlusPlugin: NSObject, FlutterPlugin, FlutterStream
       return "mobile"
     case .wiredEthernet:
       return "ethernet"
-    case .other:
-        return "other"
     case .none:
       return "none"
-    }
-  }
-  
-  private func statusFrom(connectivityTypes: [ConnectivityType]) -> [String] {
-    return connectivityTypes.map {
-      self.statusFrom(connectivityType: $0)
     }
   }
 
@@ -82,14 +69,13 @@ public class SwiftConnectivityPlusPlugin: NSObject, FlutterPlugin, FlutterStream
   ) -> FlutterError? {
     eventSink = events
     connectivityProvider.start()
-    // Update this to handle a list
-    connectivityUpdateHandler(connectivityTypes: connectivityProvider.currentConnectivityTypes)
+    connectivityUpdateHandler(connectivityType: connectivityProvider.currentConnectivityType)
     return nil
   }
 
-  private func connectivityUpdateHandler(connectivityTypes: [ConnectivityType]) {
+  private func connectivityUpdateHandler(connectivityType: ConnectivityType) {
     DispatchQueue.main.async {
-      self.eventSink?(self.statusFrom(connectivityTypes: connectivityTypes))
+      self.eventSink?(self.statusFrom(connectivityType: connectivityType))
     }
   }
 
